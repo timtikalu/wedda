@@ -16,6 +16,23 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="stylesheet" href="styles.css">
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+  // iOS-Standalone mit black-translucent meldet die Fensterhöhe um die Statusleiste zu klein.
+  // Fehlende Höhe messen und als --gap bereitstellen (in Safari/Mac: 0).
+  (function () {
+    function fix() {
+      var standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
+      var portrait = innerHeight >= innerWidth;
+      var full = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
+      var gap = standalone ? full - innerHeight : 0;
+      if (!(gap > 0 && gap < 140)) gap = 0;
+      document.documentElement.style.setProperty('--gap', gap + 'px');
+    }
+    fix();
+    addEventListener('resize', fix);
+    addEventListener('orientationchange', function () { setTimeout(fix, 300); });
+  })();
+</script>
 <script type="module" src="js/app.js"></script>
 </head>
 <body>
