@@ -623,7 +623,9 @@ function setupUI() {
 
   const main = $('#main');
   main.addEventListener('scroll', () => {
-    main.style.setProperty('--p', clamp((main.scrollTop - 70) / 110, 0, 1).toFixed(3));
+    const p = clamp((main.scrollTop - 70) / 110, 0, 1);
+    $('#main-wrap').style.setProperty('--p', p.toFixed(3));
+    main.classList.toggle('scrolled', p > 0.5);
   }, { passive: true });
 
   $('#list-btn').addEventListener('click', () => document.body.classList.add('show-list'));

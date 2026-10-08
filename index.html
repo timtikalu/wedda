@@ -17,20 +17,41 @@
 <link rel="stylesheet" href="styles.css">
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
-  // iOS-Standalone mit black-translucent meldet die Fensterhöhe um die Statusleiste zu klein.
-  // Fehlende Höhe messen und als --gap bereitstellen (in Safari/Mac: 0).
+  // iOS-Standalone mit black-translucent: Layout-Viewport endet um die Statusleisten-Höhe zu früh.
+  // Nur wenn der Fehler auftritt, wird die Statusleisten-Höhe (safe-area-inset-top) als --gap ergänzt.
   (function () {
+    var probe = document.createElement('div');
+    probe.style.cssText = 'position:fixed;left:0;top:0;width:0;height:env(safe-area-inset-top);visibility:hidden;pointer-events:none';
+    document.documentElement.appendChild(probe);
+    var info = {};
     function fix() {
       var standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
       var portrait = innerHeight >= innerWidth;
       var full = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
-      var gap = standalone ? full - innerHeight : 0;
-      if (!(gap > 0 && gap < 140)) gap = 0;
+      var missing = full - innerHeight;
+      var safeTop = probe.offsetHeight;
+      var gap = standalone && missing > 20 ? Math.min(safeTop, missing) : 0;
       document.documentElement.style.setProperty('--gap', gap + 'px');
+      info = { standalone: !!standalone, screen: screen.width + '×' + screen.height, inner: innerWidth + '×' + innerHeight,
+        visual: window.visualViewport ? Math.round(visualViewport.height) : '-', client: document.documentElement.clientHeight,
+        safeTop: safeTop, missing: missing, gap: gap };
+      var d = document.getElementById('vp-debug');
+      if (d) d.textContent = JSON.stringify(info).replace(/[{}"]/g, '').replace(/,/g, '  ');
     }
     fix();
     addEventListener('resize', fix);
     addEventListener('orientationchange', function () { setTimeout(fix, 300); });
+    addEventListener('load', function () {
+      setTimeout(fix, 200);
+      // Diagnose: …/wedda/?debug
+      if (location.search.indexOf('debug') >= 0) {
+        var d = document.createElement('div');
+        d.id = 'vp-debug';
+        d.style.cssText = 'position:fixed;left:8px;right:8px;top:50%;z-index:9999;background:rgba(0,0,0,.8);color:#fff;font:12px/1.4 ui-monospace,monospace;padding:10px;border-radius:10px';
+        document.body.appendChild(d);
+        fix();
+      }
+    });
   })();
 </script>
 <script type="module" src="js/app.js"></script>
@@ -66,8 +87,9 @@
     <p class="sidebar-foot" id="sidebar-foot"></p>
   </aside>
 
+  <div class="main-wrap" id="main-wrap">
+  <div id="compact" class="compact" aria-hidden="true"><b id="compact-name"></b><span id="compact-line"></span></div>
   <main id="main" class="main">
-    <div id="compact" class="compact" aria-hidden="true"><b id="compact-name"></b><span id="compact-line"></span></div>
     <header id="hero" class="hero">
       <div class="hero-loc"><span id="hero-arrow" class="hero-arrow" hidden></span><h2 id="hero-name">—</h2></div>
       <div id="hero-sub" class="hero-sub"></div>
@@ -133,6 +155,7 @@
       </footer>
     </div>
   </main>
+  </div>
 </div>
 
 <nav class="tabbar" id="tabbar">
