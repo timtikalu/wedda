@@ -61,6 +61,8 @@ export function fetchAir(lat, lon) {
   const p = new URLSearchParams({
     latitude: r4(lat), longitude: r4(lon),
     current: 'european_aqi,pm2_5,pm10,ozone,nitrogen_dioxide',
+    hourly: 'european_aqi',
+    forecast_days: 5,
     timezone: 'auto',
   });
   return getJSON(`https://air-quality-api.open-meteo.com/v1/air-quality?${p}`);

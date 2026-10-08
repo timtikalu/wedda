@@ -8,6 +8,7 @@ import { Sky, skyGradient, skyPalette } from './sky.js';
 import { Radar, RADAR_LEGEND } from './radar.js';
 import { WindMap, WIND_LEGEND } from './windmap.js';
 import * as detail from './detail.js';
+import { openSheet, updateSheet, TILE_KIND } from './sheet.js';
 
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -214,6 +215,7 @@ function render(loc, d) {
   renderTiles(f, d);
   if (radarSeries && radarFor === `${loc.lat.toFixed(3)},${loc.lon.toFixed(3)}`) renderNowcast(f.tz);
 
+  updateSheet(f, d);
   $('#updated').textContent = `Aktualisiert ${hhmm(undefined, d.at)} Uhr · Aktuell: ${cur.source}`;
 }
 
@@ -358,7 +360,8 @@ function renderNowcast(tz) {
 
 // ---------- Kacheln ----------
 function tile(icon, title, body, cls = '') {
-  return `<section class="card tile ${cls}"><div class="card-head">${glyph(icon)}${title}</div>${body}</section>`;
+  const kind = TILE_KIND[icon];
+  return `<section class="card tile ${cls}" ${kind ? `data-kind="${kind}" role="button" tabindex="0" aria-label="${title} – Details"` : ''}><div class="card-head">${glyph(icon)}${title}</div>${body}</section>`;
 }
 const scaleBar = (grad, p) => `<div class="scale" style="background:${grad}"><b style="left:${clamp(p, 0, 1) * 100}%"></b></div>`;
 
@@ -641,6 +644,17 @@ function setupUI() {
     const open = day.classList.toggle('open');
     row.setAttribute('aria-expanded', open);
   });
+
+  const openTile = e => {
+    const t = e.target.closest('.tile[data-kind]');
+    if (!t || !lastF) return;
+    if (e.type === 'keydown' && e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault();
+    openSheet(t.dataset.kind, lastF, data.get(activeId));
+  };
+  $('#tiles').addEventListener('click', openTile);
+  $('#tiles').addEventListener('keydown', openTile);
+  $('#version-line').addEventListener('click', () => window.__vpDebug?.());
 
   $('#dots').addEventListener('click', e => { const id = e.target.closest('[data-id]')?.dataset.id; if (id) show(id); });
 

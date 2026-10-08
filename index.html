@@ -17,41 +17,47 @@
 <link rel="stylesheet" href="styles.css">
 <script defer src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script>
-  // iOS-Standalone mit black-translucent: Layout-Viewport endet um die Statusleisten-Höhe zu früh.
-  // Nur wenn der Fehler auftritt, wird die Statusleisten-Höhe (safe-area-inset-top) als --gap ergänzt.
+  // iOS-Standalone mit black-translucent: Layout-Viewport kann um die Statusleisten-Höhe zu kurz sein.
+  // Verlängert wird nur, wenn iOS selbst eine größere Viewport-Höhe (100lvh) meldet – höchstens um die Statusleiste.
   (function () {
-    var probe = document.createElement('div');
-    probe.style.cssText = 'position:fixed;left:0;top:0;width:0;height:env(safe-area-inset-top);visibility:hidden;pointer-events:none';
-    document.documentElement.appendChild(probe);
-    var info = {};
-    function fix() {
-      var standalone = navigator.standalone || matchMedia('(display-mode: standalone)').matches;
-      var portrait = innerHeight >= innerWidth;
-      var full = portrait ? Math.max(screen.width, screen.height) : Math.min(screen.width, screen.height);
-      var missing = full - innerHeight;
-      var safeTop = probe.offsetHeight;
-      var gap = standalone && missing > 20 ? Math.min(safeTop, missing) : 0;
-      document.documentElement.style.setProperty('--gap', gap + 'px');
-      info = { standalone: !!standalone, screen: screen.width + '×' + screen.height, inner: innerWidth + '×' + innerHeight,
-        visual: window.visualViewport ? Math.round(visualViewport.height) : '-', client: document.documentElement.clientHeight,
-        safeTop: safeTop, missing: missing, gap: gap };
-      var d = document.getElementById('vp-debug');
-      if (d) d.textContent = JSON.stringify(info).replace(/[{}"]/g, '').replace(/,/g, '  ');
+    function mk(css) {
+      var d = document.createElement('div');
+      d.style.cssText = 'position:fixed;left:0;top:0;width:0;visibility:hidden;pointer-events:none;' + css;
+      document.documentElement.appendChild(d);
+      return d;
     }
+    var pSafe = mk('height:env(safe-area-inset-top)'), pSafeB = mk('height:env(safe-area-inset-bottom)');
+    var pL = mk('height:100lvh'), pS = mk('height:100svh'), pD = mk('height:100dvh'), pV = mk('height:100vh');
+    var pB = mk('top:auto;bottom:0;height:1px');
+    var debugOn = location.search.indexOf('debug') >= 0, info;
+    function fix() {
+      var standalone = !!(navigator.standalone || matchMedia('(display-mode: standalone)').matches);
+      var safeTop = pSafe.offsetHeight, L = pL.offsetHeight;
+      var cand = L - innerHeight;
+      var gap = standalone && cand > 0 && cand <= safeTop + 4 ? cand : 0;
+      document.documentElement.style.setProperty('--gap', gap + 'px');
+      info = 'standalone ' + standalone + '\nscreen ' + screen.width + '×' + screen.height + '  inner ' + innerWidth + '×' + innerHeight +
+        '\nclient ' + document.documentElement.clientHeight + '  visual ' + (window.visualViewport ? Math.round(visualViewport.height) : '-') +
+        '\nvh ' + pV.offsetHeight + '  lvh ' + L + '  svh ' + pS.offsetHeight + '  dvh ' + pD.offsetHeight +
+        '\nfixed-bottom ' + Math.round(pB.getBoundingClientRect().bottom) + '  safeTop ' + safeTop + '  safeBottom ' + pSafeB.offsetHeight +
+        '\ngap ' + gap;
+      var d = document.getElementById('vp-debug');
+      if (d) d.textContent = info;
+    }
+    window.__vpDebug = function () {
+      var d = document.getElementById('vp-debug');
+      if (d) { d.remove(); return; }
+      d = document.createElement('pre');
+      d.id = 'vp-debug';
+      d.style.cssText = 'position:fixed;left:8px;right:8px;top:40%;z-index:9999;margin:0;white-space:pre-wrap;background:rgba(0,0,0,.85);color:#fff;font:12px/1.45 ui-monospace,monospace;padding:10px 12px;border-radius:12px';
+      d.addEventListener('click', function () { d.remove(); });
+      document.body.appendChild(d);
+      fix();
+    };
     fix();
     addEventListener('resize', fix);
     addEventListener('orientationchange', function () { setTimeout(fix, 300); });
-    addEventListener('load', function () {
-      setTimeout(fix, 200);
-      // Diagnose: …/wedda/?debug
-      if (location.search.indexOf('debug') >= 0) {
-        var d = document.createElement('div');
-        d.id = 'vp-debug';
-        d.style.cssText = 'position:fixed;left:8px;right:8px;top:50%;z-index:9999;background:rgba(0,0,0,.8);color:#fff;font:12px/1.4 ui-monospace,monospace;padding:10px;border-radius:10px';
-        document.body.appendChild(d);
-        fix();
-      }
-    });
+    addEventListener('load', function () { setTimeout(fix, 200); if (debugOn) window.__vpDebug(); });
   })();
 </script>
 <script type="module" src="js/app.js"></script>
@@ -151,7 +157,7 @@
 
       <footer class="foot span-all">
         <p id="updated"></p>
-        <p>Open-Meteo (DWD ICON, NOAA GFS, ECMWF IFS) &amp; Bright Sky/DWD (Radar, Warnungen) · Höchst-/Tiefstwerte = Mittelwert der drei Modelle · v2.3</p>
+        <p id="version-line">Open-Meteo (DWD ICON, NOAA GFS, ECMWF IFS) &amp; Bright Sky/DWD (Radar, Warnungen) · Höchst-/Tiefstwerte = Mittelwert der drei Modelle · v2.3</p>
       </footer>
     </div>
   </main>
