@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2a6fdb">
+<title>wedda Widget</title>
+<style>
+  :root { --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; font-family: var(--font); color: #fff;
+    background: linear-gradient(180deg, #2a6fdb, #4a9cf0 55%, #8cc8ff);
+    padding: calc(env(safe-area-inset-top) + 28px) 16px 40px;
+  }
+  main { max-width: 520px; margin: 0 auto; }
+  h1 { font-size: 30px; margin: 0 0 4px; }
+  .sub { opacity: .85; margin: 0 0 20px; line-height: 1.4; }
+  .card {
+    background: rgba(18, 28, 48, .22); border: .5px solid rgba(255,255,255,.15);
+    -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px);
+    border-radius: 18px; padding: 16px; margin-bottom: 12px;
+  }
+  ol { margin: 0; padding-left: 22px; line-height: 1.55; }
+  li + li { margin-top: 8px; }
+  b { font-weight: 600; }
+  button, .btn {
+    display: block; width: 100%; text-align: center; text-decoration: none;
+    font: inherit; font-size: 17px; font-weight: 600; color: #0a3d91;
+    background: #fff; border: 0; border-radius: 14px; padding: 14px; cursor: pointer;
+  }
+  .btn.secondary { background: rgba(255,255,255,.2); color: #fff; margin-top: 10px; }
+  .ok { text-align: center; font-size: 14px; margin-top: 10px; min-height: 18px; }
+  small { opacity: .75; display: block; margin-top: 10px; line-height: 1.4; }
+</style>
+</head>
+<body>
+<main>
+  <h1>wedda Widget</h1>
+  <p class="sub">Wetter für deinen aktuellen Standort auf dem Home- und Sperrbildschirm – Ø aus ICON, GFS und IFS, DWD-Station und DWD-Warnungen.</p>
+
+  <div class="card">
+    <button id="copy" type="button">Skript kopieren</button>
+    <a class="btn secondary" href="https://apps.apple.com/app/scriptable/id1405459188">Scriptable im App Store</a>
+    <p class="ok" id="ok"></p>
+  </div>
+
+  <div class="card">
+    <ol>
+      <li><b>Scriptable</b> installieren (kostenlos) und einmal öffnen.</li>
+      <li>Oben auf <b>„Skript kopieren"</b> tippen.</li>
+      <li>In Scriptable rechts oben <b>+</b> → ins leere Feld tippen → <b>Einsetzen</b>. Oben den Namen auf <b>wedda</b> ändern, dann <b>Fertig</b>.</li>
+      <li>Das Skript einmal antippen und Standort <b>erlauben</b> – es erscheint eine Vorschau.</li>
+      <li>Home-Bildschirm lange drücken → <b>Bearbeiten → Widget hinzufügen</b> → <b>Scriptable</b> → klein oder mittel. Widget antippen → <b>Script: wedda</b>.</li>
+      <li>Sperrbildschirm: lange drücken → <b>Anpassen → Sperrbildschirm</b> → Widget-Feld → <b>Scriptable</b> → rechteckig oder rund → <b>Script: wedda</b>.</li>
+    </ol>
+    <small>Damit das Widget den Standort auch im Hintergrund findet: Einstellungen → Datenschutz &amp; Sicherheit → Ortungsdienste → Scriptable → „Beim Verwenden der App oder Widgets“. iOS aktualisiert Widgets etwa alle 15–30 Minuten. Ein Tipp aufs Widget öffnet die wedda-App.</small>
+  </div>
+</main>
+<script>
+  const ok = document.getElementById('ok');
+  let code = null;
+  fetch('wedda-widget.js', { cache: 'no-store' }).then(r => r.text()).then(t => { code = t; });
+  document.getElementById('copy').addEventListener('click', async () => {
+    try {
+      if (!code) code = await (await fetch('wedda-widget.js', { cache: 'no-store' })).text();
+      await navigator.clipboard.writeText(code);
+      ok.textContent = '✓ Kopiert – jetzt in Scriptable einsetzen.';
+    } catch {
+      ok.textContent = 'Kopieren nicht möglich – Skript wird angezeigt, bitte manuell kopieren.';
+      location.href = 'wedda-widget.js';
+    }
+  });
+</script>
+</body>
+</html>
