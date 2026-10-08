@@ -1,5 +1,5 @@
 // App-Shell offline verfügbar; Wetterdaten: Netzwerk zuerst, bei Funkloch der letzte Stand.
-const VERSION = 'wetter-v2.3.4';
+const VERSION = 'wetter-v2.3.5';
 const SHELL = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
   'js/app.js', 'js/detail.js', 'js/sheet.js', 'js/windmap.js', 'js/data.js', 'js/essence.js', 'js/icons.js', 'js/sky.js', 'js/radar.js',
