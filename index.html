@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2a6fdb">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Wetter">
+<meta name="description" content="Wetter-Essenz aus DWD ICON, NOAA GFS und ECMWF IFS – mit DWD-Radar und Warnungen.">
+<title>Wetter</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="styles.css">
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script type="module" src="js/app.js"></script>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <linearGradient id="gSun" gradientUnits="userSpaceOnUse" x1="0" y1="14" x2="0" y2="50"><stop offset="0" stop-color="#FFE066"/><stop offset="1" stop-color="#FFB300"/></linearGradient>
+    <linearGradient id="gMoon" gradientUnits="userSpaceOnUse" x1="0" y1="10" x2="0" y2="54"><stop offset="0" stop-color="#FFFBEA"/><stop offset="1" stop-color="#E9DDB0"/></linearGradient>
+    <linearGradient id="gCloud" gradientUnits="userSpaceOnUse" x1="0" y1="16" x2="0" y2="50"><stop offset="0" stop-color="#FFFFFF"/><stop offset="1" stop-color="#D5DEE8"/></linearGradient>
+    <linearGradient id="gCloudDim" gradientUnits="userSpaceOnUse" x1="0" y1="16" x2="0" y2="50"><stop offset="0" stop-color="#C9D1DB"/><stop offset="1" stop-color="#8E9AA8"/></linearGradient>
+  </defs>
+</svg>
+
+<div id="sky-bg" class="sky-bg"></div>
+<canvas id="sky" class="sky"></canvas>
+
+<div class="shell">
+  <!-- Ortsliste: Seitenleiste am Mac, eigener Bildschirm am iPhone -->
+  <aside id="sidebar" class="sidebar" aria-label="Orte">
+    <div class="sidebar-head">
+      <div class="sidebar-title">
+        <h1>Wetter</h1>
+        <button id="edit-btn" class="text-btn" type="button">Bearbeiten</button>
+      </div>
+      <label class="search">
+        <span class="search-icon"></span>
+        <input id="search" type="search" placeholder="Nach Stadt suchen" autocomplete="off" enterkeyhint="search">
+      </label>
+      <ul id="search-results" class="search-results" hidden></ul>
+    </div>
+    <ul id="loc-list" class="loc-list"></ul>
+    <p class="sidebar-foot" id="sidebar-foot"></p>
+  </aside>
+
+  <main id="main" class="main">
+    <div id="compact" class="compact" aria-hidden="true"><b id="compact-name"></b><span id="compact-line"></span></div>
+    <header id="hero" class="hero">
+      <div class="hero-loc"><span id="hero-arrow" class="hero-arrow" hidden></span><h2 id="hero-name">—</h2></div>
+      <div id="hero-sub" class="hero-sub"></div>
+      <div id="hero-temp" class="hero-temp">--°</div>
+      <div id="hero-cond" class="hero-cond">Lade Daten …</div>
+      <div id="hero-hl" class="hero-hl"></div>
+    </header>
+
+    <div id="content" class="content">
+      <section id="alerts" class="alerts"></section>
+
+      <section class="card span-all" id="card-hourly">
+        <div class="hourly-top">
+          <div id="hourly-title" class="hourly-title"></div>
+          <div class="seg" id="seg" role="tablist" aria-label="Ansicht">
+            <button type="button" role="tab" data-mode="wx" aria-label="Wetter"></button>
+            <button type="button" role="tab" data-mode="rain" aria-label="Niederschlag"></button>
+            <button type="button" role="tab" data-mode="wind" aria-label="Wind"></button>
+          </div>
+        </div>
+        <div class="hr-line"></div>
+        <div id="hourly" class="hourly" tabindex="0" aria-label="Stündliche Vorhersage"></div>
+      </section>
+
+      <section class="card col-a" id="card-radar" hidden>
+        <div class="card-head"><span class="ic"></span>Niederschlag · DWD-Radar</div>
+        <p id="nowcast-text" class="card-summary small"></p>
+        <div id="nowcast-chart" class="nowcast"></div>
+        <div class="radar">
+          <div class="radar-stage">
+          <div class="radar-map"></div>
+          <div class="radar-bar">
+            <button class="radar-play round-btn" type="button" aria-label="Abspielen"></button>
+            <input class="radar-slider" type="range" min="0" max="0" value="0" aria-label="Zeitpunkt">
+            <div class="radar-time"></div>
+            <button class="radar-expand round-btn" type="button" aria-label="Vergrößern"></button>
+          </div>
+          </div>
+          <div class="radar-legend"><span>leicht</span><i id="radar-legend"></i><span>stark</span></div>
+        </div>
+      </section>
+
+      <section class="card col-b" id="card-daily">
+        <div class="card-head"><span class="ic"></span>10-Tage-Vorhersage</div>
+        <p id="daily-summary" class="card-summary small"></p>
+        <div id="daily" class="daily"></div>
+      </section>
+
+      <section class="card span-all" id="card-wind">
+        <div class="card-head"><span class="ic"></span>Windkarte<span class="badge" id="wind-badge"></span></div>
+        <div class="wind-stage">
+          <div class="wind-map"></div>
+          <button class="wind-expand round-btn" type="button" aria-label="Vergrößern"></button>
+          <div class="wind-legend"><span>0</span><i id="wind-legend"></i><span>100 km/h</span></div>
+        </div>
+      </section>
+
+      <section id="tiles" class="tiles span-all"></section>
+
+      <footer class="foot span-all">
+        <p id="updated"></p>
+        <p>Open-Meteo (DWD ICON, NOAA GFS, ECMWF IFS) &amp; Bright Sky/DWD (Radar, Warnungen) · Höchst-/Tiefstwerte = Mittelwert der drei Modelle · v2.3</p>
+      </footer>
+    </div>
+  </main>
+</div>
+
+<nav class="tabbar" id="tabbar">
+  <button id="map-btn" class="tab-btn" type="button" aria-label="Radar"></button>
+  <div id="dots" class="dots"></div>
+  <button id="list-btn" class="tab-btn" type="button" aria-label="Orte"></button>
+</nav>
+
+<div id="toast" class="toast" role="status" hidden></div>
+</body>
+</html>
