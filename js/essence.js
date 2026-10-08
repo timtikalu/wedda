@@ -1,5 +1,5 @@
-// Verdichtung: drei Modelle → eine Vorhersage + Texte, die das Wesentliche sagen.
-import { MODELS } from './data.js';
+// Verdichtung: drei Modelle + DWD MOSMIX → eine Vorhersage + Texte, die das Wesentliche sagen.
+import { MODELS, SOURCES } from './data.js';
 
 export const mean = arr => {
   const a = arr.filter(x => x != null && !Number.isNaN(x));
@@ -75,19 +75,85 @@ export function describe(code, isDay = true) {
   return Array.isArray(d) ? d[isDay ? 0 : 1] : d;
 }
 
+// ---------- DWD MOSMIX ----------
+// Bright-Sky-Symbol → WMO-Code, damit MOSMIX beim Wettersymbol mitstimmen kann
+function mosCode(w) {
+  const p = w.precipitation ?? 0;
+  switch (w.icon) {
+    case 'thunderstorm': return 95;
+    case 'hail': return 96;
+    case 'snow': return p >= 1 ? 73 : 71;
+    case 'sleet': return 66;
+    case 'rain': return p >= 2.5 ? 65 : p >= 0.5 ? 63 : 61;
+    case 'fog': return 45;
+    case 'cloudy': return 3;
+    case 'partly-cloudy-day': case 'partly-cloudy-night': return 2;
+    case 'clear-day': case 'clear-night': return 0;
+    default: return w.cloud_cover != null ? cloudCode(w.cloud_cover) : null;
+  }
+}
+// Open-Meteo-Variable → Bright-Sky-Feld
+const MOS_FIELD = {
+  temperature_2m: 'temperature', precipitation: 'precipitation', precipitation_probability: 'precipitation_probability',
+  wind_speed_10m: 'wind_speed', wind_gusts_10m: 'wind_gust_speed', wind_direction_10m: 'wind_direction',
+  relative_humidity_2m: 'relative_humidity', dew_point_2m: 'dew_point', pressure_msl: 'pressure_msl',
+  visibility: 'visibility', cloud_cover: 'cloud_cover',
+};
+
+// Nur Datensätze von Punkten ≤ 20 km und ≤ 150 m Höhenunterschied; Ergebnis: Stunde (Epoch) → Datensatz
+export function mosmixSeries(mos, elev) {
+  if (!mos?.weather?.length) return null;
+  const ok = new Map((mos.sources || []).map(s => [s.id,
+    s.distance <= 20000 && (elev == null || s.height == null || Math.abs(s.height - elev) <= 150)]));
+  const fcSrc = (mos.sources || []).find(s => s.observation_type === 'forecast' && ok.get(s.id));
+  if (!fcSrc) return null;
+  const map = new Map();
+  for (const w of mos.weather) {
+    if (!ok.get(w.source_id) || w.temperature == null) continue;
+    map.set(Date.parse(w.timestamp), { ...w, code: mosCode(w) });
+  }
+  return map.size ? { map, station: fcSrc } : null;
+}
+
+function mosDay(ms, t0) {
+  const recs = [];
+  for (let t = t0; t < t0 + 864e5; t += 3600e3) { const w = ms.map.get(t); if (w) recs.push(w); }
+  if (recs.length < 20) return null; // Tag nicht (fast) vollständig abgedeckt
+  const v = k => recs.map(w => w[k]).filter(x => x != null);
+  const precip = v('precipitation').reduce((s, x) => s + x, 0);
+  const codes = recs.map(w => w.code).filter(c => c != null);
+  let code;
+  if (codes.some(c => c >= 95)) code = 95;
+  else if (precip >= 0.3 && codes.some(isWet)) {
+    const cnt = {};
+    codes.filter(isWet).forEach(c => { cnt[c] = (cnt[c] || 0) + 1; });
+    code = +Object.entries(cnt).sort((a, b) => b[1] - a[1])[0][0];
+  } else code = cloudCode(mean(recs.slice(8, 19).map(w => w.cloud_cover)));
+  return {
+    hi: Math.max(...v('temperature')), lo: Math.min(...v('temperature')), precip,
+    pop: v('precipitation_probability').length ? Math.max(...v('precipitation_probability')) : null,
+    windMax: v('wind_speed').length ? Math.max(...v('wind_speed')) : null,
+    gustMax: v('wind_gust_speed').length ? Math.max(...v('wind_gust_speed')) : null,
+    dir: circMean(v('wind_direction')), code,
+  };
+}
+
 // ---------- Aufbereitung ----------
-export function buildForecast(raw, station, now = Date.now()) {
+export function buildForecast(raw, station, mosRaw = null, now = Date.now()) {
   const off = raw.utc_offset_seconds;
   const tz = raw.timezone;
+  const ms = mosmixSeries(mosRaw, raw.elevation);
   const pick = (blk, v, i) => MODELS.map(m => blk[`${v}_${m.id}`]?.[i] ?? null);
 
   // Stündlich
   const H = raw.hourly;
   const hours = H.time.map((ts, i) => {
-    const p = v => pick(H, v, i);
+    const t = parseLocal(ts, off);
+    const mw = ms?.map.get(t);
+    const p = v => [...pick(H, v, i), mw && MOS_FIELD[v] ? mw[MOS_FIELD[v]] ?? null : null];
     const temps = p('temperature_2m');
     const h = {
-      t: parseLocal(ts, off),
+      t,
       temp: mean(temps), temps,
       feels: mean(p('apparent_temperature')),
       precip: mean(p('precipitation')), precips: p('precipitation'),
@@ -96,7 +162,7 @@ export function buildForecast(raw, station, now = Date.now()) {
       rh: mean(p('relative_humidity_2m')), dew: mean(p('dew_point_2m')), pres: mean(p('pressure_msl')),
       vis: mean(p('visibility')), uv: mean(p('uv_index')), cloud: mean(p('cloud_cover')),
       isDay: firstVal(p('is_day')) !== 0,
-      votes: p('weather_code'),
+      votes: [...pick(H, 'weather_code', i), mw?.code ?? null],
       n: temps.filter(x => x != null).length,
     };
     h.code = consensus(h.votes, { precip: h.precip, pop: h.pop, cloud: h.cloud });
@@ -108,11 +174,17 @@ export function buildForecast(raw, station, now = Date.now()) {
 
   // Täglich
   const D = raw.daily;
+  const MOS_DAY = {
+    temperature_2m_max: 'hi', temperature_2m_min: 'lo', precipitation_sum: 'precip', precipitation_probability_max: 'pop',
+    wind_speed_10m_max: 'windMax', wind_gusts_10m_max: 'gustMax', wind_direction_10m_dominant: 'dir', weather_code: 'code',
+  };
   const days = D.time.map((ds, i) => {
-    const p = v => pick(D, v, i);
+    const t0 = parseLocal(ds, off);
+    const md = ms ? mosDay(ms, t0) : null;
+    const p = v => [...pick(D, v, i), md && MOS_DAY[v] ? md[MOS_DAY[v]] ?? null : null];
     const his = p('temperature_2m_max'), los = p('temperature_2m_min');
     const d = {
-      date: ds, t: parseLocal(ds, off),
+      date: ds, t: t0,
       hi: mean(his), lo: mean(los), his, los,
       precip: mean(p('precipitation_sum')), precips: p('precipitation_sum'),
       pop: mean(p('precipitation_probability_max')), pops: p('precipitation_probability_max'),
@@ -189,7 +261,7 @@ export function buildForecast(raw, station, now = Date.now()) {
   const past24 = hours.slice(Math.max(0, nowIdx - 24), nowIdx);
 
   return {
-    tz, off, elevation: raw.elevation, now,
+    tz, off, elevation: raw.elevation, now, mosmix: ms?.station || null,
     current: cur, hours, nowIdx, next24, past24, daily, yesterday,
     generated: now,
   };
@@ -282,15 +354,15 @@ export function agreement(f) {
   const today = f.daily[0];
   const spreadAll = mean(f.daily.slice(0, 5).map(d => d.spread));
   const level = spreadAll <= 1.5 ? 'hoch' : spreadAll <= 3 ? 'mittel' : 'gering';
-  const vals = MODELS.map((m, i) => ({ ...m, hi: today.his[i], lo: today.los[i], precip: today.precips[i] }));
+  const vals = SOURCES.map((m, i) => ({ ...m, hi: today.his[i], lo: today.los[i], precip: today.precips[i] }));
   const wetVotes = today.precips.filter(p => p != null && p >= 0.5).length;
   const nValid = today.precips.filter(p => p != null).length;
   let text;
-  if (level === 'hoch') text = 'Die drei Modelle sind sich weitgehend einig – die Vorhersage ist verlässlich.';
-  else if (level === 'mittel') text = 'Leichte Abweichungen zwischen den Modellen – Details können sich noch ändern.';
-  else text = 'Die Modelle weichen deutlich voneinander ab – die Vorhersage ist unsicher.';
+  if (level === 'hoch') text = 'Die Quellen sind sich weitgehend einig – die Vorhersage ist verlässlich.';
+  else if (level === 'mittel') text = 'Leichte Abweichungen zwischen den Quellen – Details können sich noch ändern.';
+  else text = 'Die Quellen weichen deutlich voneinander ab – die Vorhersage ist unsicher.';
   let rainText = '';
-  if (nValid >= 2 && wetVotes > 0 && wetVotes < nValid) rainText = `Niederschlag heute: ${wetVotes} von ${nValid} Modellen.`;
+  if (nValid >= 2 && wetVotes > 0 && wetVotes < nValid) rainText = `Niederschlag heute: ${wetVotes} von ${nValid} Quellen.`;
   return { level, spread: spreadAll, vals, text, rainText, score: clamp(1 - spreadAll / 5, 0.05, 1) };
 }
 

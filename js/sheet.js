@@ -1,7 +1,7 @@
 // Detailblätter für die Kacheln (wie Apple Wetter): Tagesauswahl, 24-h-Diagramm zum Nachfahren, Tagesübersicht, Erklärung.
 import { glyph } from './icons.js';
 import { uvLabel, aqiLabel, compass, moonPhase, mean, parseLocal, describe } from './essence.js';
-import { MODELS } from './data.js';
+import { SOURCES } from './data.js';
 
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
 const fmt = (tz, o) => new Intl.DateTimeFormat('de-DE', { timeZone: tz, ...o });
@@ -17,14 +17,14 @@ const maxBy = (hs, k) => hs.reduce((a, h) => (k(h) != null && (a == null || k(h)
 const METRICS = {
   models: {
     title: 'Modell-Einigkeit', icon: 'models', unit: '°',
-    series: [0, 1, 2].map(i => ({ key: h => h.temps?.[i], color: ['#64d2ff', '#ffd60a', '#ff9f0a'][i], label: MODELS[i].name })),
+    series: [0, 1, 2, 3].map(i => ({ key: h => h.temps?.[i], color: ['#64d2ff', '#ffd60a', '#ff9f0a', '#ff6482'][i], label: SOURCES[i].name })),
     head: (c) => c.today ? { big: `${r(c.f.current.temp)}°`, sub: 'Ø aktuell' } : { big: `${r(c.day.hi)}° / ${r(c.day.lo)}°`, sub: 'Ø Höchst- / Tiefstwert' },
     summary: c => {
-      const parts = MODELS.map((m, i) => c.day.his[i] == null ? null : `${m.name} ${r(c.day.his[i])}° / ${r(c.day.los[i])}°`).filter(Boolean);
+      const parts = SOURCES.map((m, i) => c.day.his[i] == null ? null : `${m.name} ${r(c.day.his[i])}° / ${r(c.day.los[i])}°`).filter(Boolean);
       const sp = c.day.spread;
-      return `${parts.join(' · ')}. Spanne der Höchstwerte ${n1(sp)}° – ${sp <= 1.5 ? 'die Modelle sind sich einig.' : sp <= 3 ? 'leichte Abweichungen.' : 'deutliche Unsicherheit.'}`;
+      return `${parts.join(' · ')}. Spanne der Höchstwerte ${n1(sp)}° – ${sp <= 1.5 ? 'die Quellen sind sich einig.' : sp <= 3 ? 'leichte Abweichungen.' : 'deutliche Unsicherheit.'}`;
     },
-    info: 'Die Kurven zeigen die stündliche Temperatur jedes Modells: DWD ICON (blau), NOAA GFS (gelb) und ECMWF IFS (orange). Je enger sie beieinander liegen, desto verlässlicher ist die Vorhersage. Angezeigt wird in der App der Mittelwert.',
+    info: 'Die Kurven zeigen die stündliche Temperatur jeder Quelle: DWD ICON (blau), NOAA GFS (gelb), ECMWF IFS (orange) und DWD MOSMIX (rosa) – eine vom DWD statistisch auf den nächsten Vorhersagepunkt korrigierte Vorhersage. Je enger die Kurven beieinander liegen, desto verlässlicher ist die Vorhersage. Angezeigt wird in der App der Mittelwert.',
   },
   uv: {
     title: 'UV-Index', icon: 'sun', unit: '', yMin: 0, yMaxMin: 8,
@@ -55,7 +55,7 @@ const METRICS = {
       const w = maxBy(c.hs, h => h.wind), g = maxBy(c.hs, h => h.gust);
       return `Stärkster Wind ${r(w?.wind)} km/h gegen ${hnum(c.tz, w.t)} Uhr, Böen bis ${r(g?.gust)} km/h. Vorherrschend aus ${compass(c.day.dir)}.`;
     },
-    info: 'Wind ist das Mittel über 10 Minuten in 10 m Höhe, Böen sind kurze Spitzen. Die Pfeile zeigen, wohin der Wind weht. Werte: Mittel aus ICON, GFS und IFS.',
+    info: 'Wind ist das Mittel über 10 Minuten in 10 m Höhe, Böen sind kurze Spitzen. Die Pfeile zeigen, wohin der Wind weht. Werte: Mittel aus ICON, GFS, IFS und MOSMIX.',
   },
   precip: {
     title: 'Niederschlag', icon: 'drop', unit: 'mm', yMin: 0, yMaxMin: 2, bars: true,
@@ -69,7 +69,7 @@ const METRICS = {
       const wet = c.hs.filter(h => (h.precip ?? 0) >= 0.1);
       return `${n1(sum)} mm, vor allem zwischen ${hnum(c.tz, wet[0].t)} und ${hnum(c.tz, wet.at(-1).t + 3600e3)} Uhr. Höchste Wahrscheinlichkeit ${r(p?.pop)} % gegen ${hnum(c.tz, p.t)} Uhr.`;
     },
-    info: 'Balken: stündliche Niederschlagsmenge (Mittel aus drei Modellen). Linie: Regenwahrscheinlichkeit. 1 mm entspricht 1 Liter pro Quadratmeter.',
+    info: 'Balken: stündliche Niederschlagsmenge (Mittel aus ICON, GFS, IFS und MOSMIX). Linie: Regenwahrscheinlichkeit. 1 mm entspricht 1 Liter pro Quadratmeter.',
   },
   feels: {
     title: 'Gefühlt', icon: 'thermo', unit: '°',
@@ -102,7 +102,7 @@ const METRICS = {
       const min = Math.min(...v) / 1000;
       return `Zwischen ${n1(min)} und ${r(Math.max(...v) / 1000)} km. ${min < 1 ? 'Zeitweise Nebel möglich.' : min < 5 ? 'Zeitweise eingeschränkte Sicht.' : 'Gute Sicht.'}`;
     },
-    info: 'Wie weit man horizontal klar sehen kann. Nebel, Dunst und Niederschlag verringern die Sichtweite. Quelle: Mittel aus ICON und GFS.',
+    info: 'Wie weit man horizontal klar sehen kann. Nebel, Dunst und Niederschlag verringern die Sichtweite. Quelle: Mittel aus ICON, GFS und MOSMIX.',
   },
   pressure: {
     title: 'Luftdruck', icon: 'gauge', unit: 'hPa',
@@ -335,7 +335,7 @@ function drawChart(host, M, c, head) {
     const unit = M.unit === '°' ? '°' : M.unit ? ` ${M.unit}` : '';
     let extra = '';
     if (M.series.length > 1 && M.title === 'Wind') extra = `Böen ${r(h.gust)} km/h · aus ${compass(h.dir)}`;
-    else if (M.title === 'Modell-Einigkeit') extra = MODELS.map((m, i) => `${m.name} ${r(h.temps?.[i])}°`).join(' · ');
+    else if (M.title === 'Modell-Einigkeit') extra = SOURCES.map((m, i) => h.temps?.[i] == null ? null : `${m.name} ${r(h.temps[i])}°`).filter(Boolean).join(' · ');
     else if (M.title === 'Gefühlt') extra = `Tatsächlich ${r(h.temp)}°`;
     else if (M.popLine) extra = `Wahrscheinlichkeit ${r(h.pop)} %`;
     else if (M.title === 'UV-Index') extra = uvLabel(h.uv);

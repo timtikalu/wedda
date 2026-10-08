@@ -1,7 +1,7 @@
 {
-  "name": "Wetter – Essenz aus drei Modellen",
+  "name": "Wetter – Essenz aus vier Quellen",
   "short_name": "Wetter",
-  "description": "Wettervorhersage als Mittel aus DWD ICON, NOAA GFS und ECMWF IFS – mit DWD-Radar und Warnungen.",
+  "description": "Wettervorhersage als Mittel aus DWD ICON, NOAA GFS, ECMWF IFS und DWD MOSMIX – mit DWD-Radar und Warnungen.",
   "lang": "de",
   "start_url": "./",
   "scope": "./",

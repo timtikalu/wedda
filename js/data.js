@@ -1,10 +1,13 @@
-// Netzwerkschicht: Open-Meteo (3 Modelle), Bright Sky (DWD-Station, Radar, Warnungen), Luftqualität, Geocoding.
+// Netzwerkschicht: Open-Meteo (3 Modelle), Bright Sky (DWD-Station, MOSMIX, Radar, Warnungen), Luftqualität, Geocoding.
 
 export const MODELS = [
   { id: 'icon_seamless', name: 'ICON', org: 'DWD' },
   { id: 'gfs_seamless', name: 'GFS', org: 'NOAA' },
   { id: 'ecmwf_ifs025', name: 'IFS', org: 'ECMWF' },
 ];
+
+// Vierte Quelle: DWD MOSMIX (statistisch korrigierte Stationsvorhersage, via Bright Sky)
+export const SOURCES = [...MODELS, { id: 'mosmix', name: 'MOSMIX', org: 'DWD' }];
 
 const HOURLY = [
   'temperature_2m', 'apparent_temperature', 'precipitation', 'precipitation_probability',
@@ -70,6 +73,13 @@ export function fetchAir(lat, lon) {
 
 export function fetchStation(lat, lon) {
   return getJSON(`https://api.brightsky.dev/current_weather?lat=${r4(lat)}&lon=${r4(lon)}&max_dist=25000`);
+}
+
+// MOSMIX-Punktvorhersage + Messwerte der vergangenen Stunden (gleiche Zeitreihe)
+export function fetchMosmix(lat, lon) {
+  const d0 = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
+  const d1 = new Date(Date.now() + 11 * 864e5).toISOString().slice(0, 10);
+  return getJSON(`https://api.brightsky.dev/weather?lat=${r4(lat)}&lon=${r4(lon)}&date=${d0}&last_date=${d1}&max_dist=25000`, { timeout: 15000 });
 }
 
 export function fetchAlerts(lat, lon) {

@@ -2,8 +2,8 @@
 // These must be at the very top of the file. Do not edit.
 // icon-color: blue; icon-glyph: cloud-sun;
 
-// wedda – Wetter-Widget (v2.3) für Scriptable
-// Aktueller Standort · Höchst-/Tiefstwerte = Mittelwert aus DWD ICON, NOAA GFS, ECMWF IFS (Open-Meteo)
+// wedda – Wetter-Widget (v2.4) für Scriptable
+// Aktueller Standort · Höchst-/Tiefstwerte = Mittelwert aus DWD ICON, NOAA GFS, ECMWF IFS (Open-Meteo) und DWD MOSMIX (Bright Sky)
 // Aktuelle Temperatur: DWD-Messstation (Bright Sky), wenn nah & höhengleich, sonst ICON · Warnungen: DWD
 // Größen: klein, mittel, Sperrbildschirm (rechteckig, rund, Textzeile)
 
@@ -130,13 +130,20 @@ async function loadData(pos) {
     'daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_sum,precipitation_probability_max,sunrise,sunset',
     'timezone=auto', 'forecast_days=2',
   ].join('&');
-  const [fc, st, al] = await Promise.allSettled([
+  const d0 = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
+  const d1 = new Date(Date.now() + 3 * 864e5).toISOString().slice(0, 10);
+  const [fc, st, al, mos] = await Promise.allSettled([
     getJSON(`https://api.open-meteo.com/v1/forecast?${p}`),
     getJSON(`https://api.brightsky.dev/current_weather?lat=${r4(pos.lat)}&lon=${r4(pos.lon)}&max_dist=25000`, 10),
     getJSON(`https://api.brightsky.dev/alerts?lat=${r4(pos.lat)}&lon=${r4(pos.lon)}`, 10),
+    getJSON(`https://api.brightsky.dev/weather?lat=${r4(pos.lat)}&lon=${r4(pos.lon)}&date=${d0}&last_date=${d1}&max_dist=25000`, 12),
   ]);
   if (fc.status !== 'fulfilled' || !fc.value?.hourly) throw new Error('Keine Vorhersage');
-  return { raw: fc.value, station: st.status === 'fulfilled' ? st.value : null, alerts: al.status === 'fulfilled' ? (al.value.alerts || []) : [] };
+  return {
+    raw: fc.value, station: st.status === 'fulfilled' ? st.value : null,
+    alerts: al.status === 'fulfilled' ? (al.value.alerts || []) : [],
+    mos: mos.status === 'fulfilled' ? mos.value : null,
+  };
 }
 
 // DWD-Temperatur nur, wenn genau DIESES Feld von einer nahen, höhengleichen, aktuellen Station stammt
@@ -150,8 +157,28 @@ function stationTemp(st, elev) {
   return w.temperature;
 }
 
-function build({ raw, station, alerts }) {
+// DWD MOSMIX: nur Punkte ≤ 20 km / ≤ 150 m Höhenunterschied; Stunde (Epoch) → Datensatz
+function mosmixMap(mos, elev) {
+  if (!mos?.weather?.length) return null;
+  const ok = new Map((mos.sources || []).map(s => [s.id, s.distance <= 20000 && (elev == null || s.height == null || Math.abs(s.height - elev) <= 150)]));
+  if (!(mos.sources || []).some(s => s.observation_type === 'forecast' && ok.get(s.id))) return null;
+  const m = new Map();
+  for (const w of mos.weather) if (ok.get(w.source_id) && w.temperature != null) m.set(Date.parse(w.timestamp), w);
+  return m;
+}
+
+function build({ raw, station, alerts, mos }) {
   const H = raw.hourly, D = raw.daily, c = raw.current || {};
+  const off = raw.utc_offset_seconds;
+  const epoch = s => Date.parse(s.length === 10 ? `${s}T00:00:00Z` : `${s}:00Z`) - off * 1000;
+  const mm = mosmixMap(mos, raw.elevation);
+  const mosAt = (ts, k) => mm?.get(epoch(ts))?.[k] ?? null;
+  const mosDay = (ds) => {
+    if (!mm) return null;
+    const t0 = epoch(ds), temps = [];
+    for (let t = t0; t < t0 + 864e5; t += 3600e3) { const w = mm.get(t); if (w) temps.push(w.temperature); }
+    return temps.length >= 20 ? { hi: Math.max(...temps), lo: Math.min(...temps) } : null;
+  };
   const today = D.time[0];
   const sunrise = D.sunrise?.[0], sunset = D.sunset?.[0], sunrise2 = D.sunrise?.[1], sunset2 = D.sunset?.[1];
   const isDayAt = t => {
@@ -165,17 +192,20 @@ function build({ raw, station, alerts }) {
 
   const hours = [];
   for (let i = idx; i < Math.min(H.time.length, idx + 6); i++) {
-    const precip = mean(pick(H, 'precipitation', i)), pop = mean(pick(H, 'precipitation_probability', i));
+    const ts = H.time[i];
+    const precip = mean([...pick(H, 'precipitation', i), mosAt(ts, 'precipitation')]);
+    const pop = mean([...pick(H, 'precipitation_probability', i), mosAt(ts, 'precipitation_probability')]);
     hours.push({
       label: H.time[i].slice(11, 13),
-      temp: mean(pick(H, 'temperature_2m', i)),
+      temp: mean([...pick(H, 'temperature_2m', i), mosAt(ts, 'temperature')]),
       code: consensus(pick(H, 'weather_code', i), { precip, pop, cloud: mean(pick(H, 'cloud_cover', i)) }),
       pop, day: isDayAt(H.time[i]),
     });
   }
 
   const precipDay = mean(pick(D, 'precipitation_sum', 0)), popDay = mean(pick(D, 'precipitation_probability_max', 0));
-  let hi = mean(pick(D, 'temperature_2m_max', 0)), lo = mean(pick(D, 'temperature_2m_min', 0));
+  const md = mosDay(D.time[0]);
+  let hi = mean([...pick(D, 'temperature_2m_max', 0), md?.hi ?? null]), lo = mean([...pick(D, 'temperature_2m_min', 0), md?.lo ?? null]);
   const sTemp = stationTemp(station, raw.elevation);
   const temp = sTemp ?? c.temperature_2m ?? hours[0]?.temp;
   if (temp != null) { hi = Math.max(hi, temp); lo = Math.min(lo, temp); }

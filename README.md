@@ -1,12 +1,13 @@
-# Wetter v2.3 – die Essenz aus drei Modellen
+# Wetter v2.4 – die Essenz aus vier Quellen
 
 PWA im Stil der Apple-Wetter-App (iPhone & Mac). Kein Build-Schritt, keine API-Keys.
 
 ## Datenquellen & Verdichtung
 | Was | Quelle | Wie verdichtet |
 |---|---|---|
-| Stunden & 10 Tage | Open-Meteo: DWD ICON, NOAA GFS, ECMWF IFS | Mittelwert aller verfügbaren Modelle (ICON reicht ~7,5 Tage, danach Ø aus 2 Modellen – im Tagesdetail sichtbar) |
-| Höchst-/Tiefstwerte | dito | Mittelwert der drei Modelle; heute zusätzlich so, dass die aktuelle Temperatur innerhalb liegt |
+| Stunden & 10 Tage | Open-Meteo: DWD ICON, NOAA GFS, ECMWF IFS + **DWD MOSMIX** (Bright Sky) | Mittelwert aller verfügbaren Quellen, je ¼ (ICON reicht ~7,5 Tage, MOSMIX ~10 Tage; die Anzahl steht im Tagesdetail) |
+| Höchst-/Tiefstwerte | dito | Mittelwert aus ICON, GFS, IFS und MOSMIX; heute zusätzlich so, dass die aktuelle Temperatur innerhalb liegt |
+| MOSMIX | DWD-Punktvorhersage (statistisch auf ~5.400 Punkte korrigiert) | nur Punkte ≤ 20 km und ≤ 150 m Höhenunterschied; für heute: bisherige Messwerte + Vorhersage; außerhalb DE automatisch 3 Quellen |
 | Wettersymbol | dito | Mehrheitsentscheid der Modelle, sonst Median nach Wetterschwere; „Regen"-Symbol nur, wenn die gemittelte Menge es trägt |
 | Aktuelle Werte | Bright Sky / DWD-Messstation | Jedes Feld nur, wenn seine Station ≤ 15 km entfernt, ≤ 120 m Höhenunterschied, ≤ 100 min alt – sonst DWD ICON |
 | Radar & Nowcast | Bright Sky / DWD RADOLAN | 5-Min-Frames (≈ 1 h zurück, 1 h Vorhersage), Nowcast = 3×3 km um den Standort |

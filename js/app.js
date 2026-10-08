@@ -1,4 +1,4 @@
-import { MODELS, fetchForecast, fetchStation, fetchAlerts, fetchAir, searchPlaces, reverseGeocode } from './data.js';
+import { SOURCES, fetchForecast, fetchStation, fetchAlerts, fetchAir, fetchMosmix, searchPlaces, reverseGeocode } from './data.js';
 import {
   buildForecast, headline, dailySummary, agreement, nowcastText, describe, category, isWet,
   uvLabel, aqiLabel, windName, compass, moonPhase, mean,
@@ -97,9 +97,9 @@ async function load(loc, { force = false } = {}) {
     }
     const cached = data.get(loc.id);
     if (!force && cached && Date.now() - cached.at < STALE && cached.lat === loc.lat) return cached;
-    const [fc, st, al, air] = await Promise.allSettled([
+    const [fc, st, al, air, mos] = await Promise.allSettled([
       fetchForecast(loc.lat, loc.lon), fetchStation(loc.lat, loc.lon),
-      fetchAlerts(loc.lat, loc.lon), fetchAir(loc.lat, loc.lon),
+      fetchAlerts(loc.lat, loc.lon), fetchAir(loc.lat, loc.lon), fetchMosmix(loc.lat, loc.lon),
     ]);
     if (fc.status !== 'fulfilled') {
       if (cached) {
@@ -114,6 +114,7 @@ async function load(loc, { force = false } = {}) {
       alerts: al.status === 'fulfilled' ? (al.value.alerts || []) : (cached?.alerts || []),
       alertsOk: al.status === 'fulfilled' || (al.reason?.status >= 400 && al.reason?.status < 500),
       air: air.status === 'fulfilled' ? air.value : cached?.air || null,
+      mos: mos.status === 'fulfilled' ? mos.value : null,
       at: Date.now(), lat: loc.lat,
     };
     data.set(loc.id, entry);
@@ -152,7 +153,7 @@ async function loadRadar(loc, d) {
   const key = `${loc.lat.toFixed(3)},${loc.lon.toFixed(3)}`;
   if (radarFor === key && Date.now() - radar.loadedAt < 5 * 60e3) return;
   radarFor = key;
-  const f = buildForecast(d.raw, d.station);
+  const f = buildForecast(d.raw, d.station, d.mos);
   try {
     const series = await radar.load(loc.lat, loc.lon, { dark: !f.current.isDay });
     if (radarFor !== key) return;
@@ -187,7 +188,7 @@ function renderLoading(loc) {
 }
 
 function render(loc, d) {
-  const f = buildForecast(d.raw, d.station);
+  const f = buildForecast(d.raw, d.station, d.mos);
   lastF = f;
   const cur = f.current;
   const today = f.daily[0];
@@ -216,7 +217,8 @@ function render(loc, d) {
   if (radarSeries && radarFor === `${loc.lat.toFixed(3)},${loc.lon.toFixed(3)}`) renderNowcast(f.tz);
 
   updateSheet(f, d);
-  $('#updated').textContent = `Aktualisiert ${hhmm(undefined, d.at)} Uhr · Aktuell: ${cur.source}`;
+  $('#updated').textContent = `Aktualisiert ${hhmm(undefined, d.at)} Uhr · Aktuell: ${cur.source}` +
+    (f.mosmix ? ` · MOSMIX: ${titleCase(f.mosmix.station_name)} (${(f.mosmix.distance / 1000).toFixed(0)} km)` : ' · MOSMIX: kein Punkt in der Nähe');
 }
 
 const SEV = {
@@ -299,7 +301,7 @@ function sunEventIcon(rise) {
 }
 
 function renderDaily(f) {
-  $('#card-daily .card-head').innerHTML = `${glyph('calendar')}${f.daily.length}-Tage-Vorhersage<span class="badge">Ø 3 Modelle</span>`;
+  $('#card-daily .card-head').innerHTML = `${glyph('calendar')}${f.daily.length}-Tage-Vorhersage<span class="badge">Ø ${f.daily[0]?.n ?? 3} Quellen</span>`;
   if (mode !== 'wx') {
     $('#daily-summary').textContent = mode === 'rain' ? detail.rainSummary(f) : detail.windSummary(f);
     $('#daily').innerHTML = mode === 'rain' ? detail.dailyRain(f) : detail.dailyWind(f);
@@ -312,7 +314,7 @@ function renderDaily(f) {
   $('#daily').innerHTML = f.daily.map((d, i) => {
     const pop = isWet(d.code) && d.pop >= 30 ? `${Math.round(d.pop / 10) * 10} %` : '';
     const dot = i === 0 && f.current.temp != null ? `<b style="left:${pct(f.current.temp)}%"></b>` : '';
-    const models = MODELS.map((m, k) => {
+    const models = SOURCES.map((m, k) => {
       const hi = d.his[k], lo = d.los[k];
       if (hi == null) return `<div class="model missing"><b>${m.name} · ${m.org}</b>keine Daten</div>`;
       return `<div class="model"><b>${m.name} · ${m.org}</b><span class="mv">${deg(hi)} / ${deg(lo)}</span><br>${num(d.precips[k])} mm${d.pops[k] != null ? ` · ${r(d.pops[k])} %` : ''}</div>`;
@@ -320,7 +322,7 @@ function renderDaily(f) {
     const extra = [
       `Ø Niederschlag ${num(d.precip)} mm${d.pop != null ? ` · Wahrscheinlichkeit ${r(d.pop)} %` : ''}`,
       `Wind bis ${r(d.windMax)} km/h aus ${compass(d.dir)}${d.gustMax != null ? `, Böen ${r(d.gustMax)} km/h` : ''}`,
-      `${d.uvMax != null ? `UV-Index ${r(d.uvMax)} · ` : ''}Modell-Spanne Höchstwert ${num(d.spread)}°${d.n < 3 ? ` · nur ${d.n} Modelle verfügbar` : ''}`,
+      `${d.uvMax != null ? `UV-Index ${r(d.uvMax)} · ` : ''}Spanne Höchstwert ${num(d.spread)}°${d.n < 3 ? ` · nur ${d.n} Quellen verfügbar` : ''}`,
     ].join('<br>');
     return `<div class="day">
       <button class="day-row" type="button" aria-expanded="false">
@@ -544,7 +546,7 @@ function renderList() {
   $('#loc-list').innerHTML = locations.map(l => {
     const d = data.get(l.id);
     let f = null;
-    try { f = d ? buildForecast(d.raw, d.station) : null; } catch { f = null; }
+    try { f = d ? buildForecast(d.raw, d.station, d.mos) : null; } catch { f = null; }
     const bg = f ? skyGradient(f.current.code, f.current.isDay) : 'linear-gradient(#2c3e57,#1b2636)';
     const warn = d?.alerts?.some(a => !a.expires || Date.parse(a.expires) > Date.now());
     const sub = l.geo ? (l.place ? 'Mein Standort' : l.geoError ? 'Ortung nicht erlaubt' : 'Wird ermittelt …') : f ? (f.tz !== localTz ? hhmm(f.tz, Date.now()) : (l.region || hhmm(f.tz, Date.now()))) : (l.region || '');
