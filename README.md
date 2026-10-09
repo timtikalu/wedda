@@ -43,5 +43,5 @@ Bedienung: Umschalter oben rechts in der Stundenkarte (Wetter / Niederschlag / W
 
 ## Widget (iPhone, via Scriptable)
 PWAs können auf iOS keine Widgets anbieten. Deshalb gibt es `widget/wedda-widget.js` für die kostenlose App **Scriptable**:
-klein, mittel und Sperrbildschirm (rechteckig, rund, Textzeile), aktueller Standort, gleiche Mittelung wie die App.
+klein, mittel (5 Tage mit Temperaturbalken + Hinweis zu Warnung/Regen/Temperaturwechsel; Parameter „stunden“ → Stundenansicht) und Sperrbildschirm (rechteckig, rund, Textzeile), aktueller Standort, gleiche Mittelung wie die App.
 Installation: **https://timtikalu.github.io/wedda/widget/** auf dem iPhone öffnen, dann „Skript kopieren“ und der Anleitung folgen.

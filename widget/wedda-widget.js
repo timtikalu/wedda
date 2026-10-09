@@ -5,7 +5,7 @@
 // wedda – Wetter-Widget (v2.4) für Scriptable
 // Aktueller Standort · Höchst-/Tiefstwerte = Mittelwert aus DWD ICON, NOAA GFS, ECMWF IFS (Open-Meteo) und DWD MOSMIX (Bright Sky)
 // Aktuelle Temperatur: DWD-Messstation (Bright Sky), wenn nah & höhengleich, sonst ICON · Warnungen: DWD
-// Größen: klein, mittel, Sperrbildschirm (rechteckig, rund, Textzeile)
+// Größen: klein, mittel (5 Tage + Hinweis; Parameter „stunden“ → Stundenansicht), Sperrbildschirm (rechteckig, rund, Textzeile)
 
 const APP_URL = 'https://timtikalu.github.io/wedda/';
 const MODELS = ['icon_seamless', 'gfs_seamless', 'ecmwf_ifs025'];
@@ -126,12 +126,12 @@ async function loadData(pos) {
   const p = [
     `latitude=${r4(pos.lat)}`, `longitude=${r4(pos.lon)}`, `models=${MODELS.join(',')}`,
     'current=temperature_2m,weather_code,is_day,cloud_cover',
-    'hourly=temperature_2m,precipitation,precipitation_probability,weather_code,cloud_cover',
+    'hourly=temperature_2m,precipitation,precipitation_probability,weather_code,cloud_cover,wind_gusts_10m',
     'daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_sum,precipitation_probability_max,sunrise,sunset',
-    'timezone=auto', 'forecast_days=2',
+    'timezone=auto', 'forecast_days=6',
   ].join('&');
   const d0 = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
-  const d1 = new Date(Date.now() + 3 * 864e5).toISOString().slice(0, 10);
+  const d1 = new Date(Date.now() + 7 * 864e5).toISOString().slice(0, 10);
   const [fc, st, al, mos] = await Promise.allSettled([
     getJSON(`https://api.open-meteo.com/v1/forecast?${p}`),
     getJSON(`https://api.brightsky.dev/current_weather?lat=${r4(pos.lat)}&lon=${r4(pos.lon)}&max_dist=25000`, 10),
@@ -191,11 +191,12 @@ function build({ raw, station, alerts, mos }) {
   if (idx < 0) idx = 0;
 
   const hours = [];
-  for (let i = idx; i < Math.min(H.time.length, idx + 6); i++) {
+  for (let i = idx; i < Math.min(H.time.length, idx + 25); i++) {
     const ts = H.time[i];
     const precip = mean([...pick(H, 'precipitation', i), mosAt(ts, 'precipitation')]);
     const pop = mean([...pick(H, 'precipitation_probability', i), mosAt(ts, 'precipitation_probability')]);
     hours.push({
+      ts, gust: mean(pick(H, 'wind_gusts_10m', i)), precip,
       label: H.time[i].slice(11, 13),
       temp: mean([...pick(H, 'temperature_2m', i), mosAt(ts, 'temperature')]),
       code: consensus(pick(H, 'weather_code', i), { precip, pop, cloud: mean(pick(H, 'cloud_cover', i)) }),
@@ -222,11 +223,58 @@ function build({ raw, station, alerts, mos }) {
     ? alert.event_de.toLowerCase().replace(/(^|[\s(-])(\p{L})/gu, (m, a, b) => a + b.toUpperCase()).replace(/ (Mit|Und|Von|Vor|In|Über|Bis) /g, m => m.toLowerCase())
     : null;
 
-  return {
-    temp, code, day, hi, lo, hours, precipDay, popDay,
+  // 5 Tage (Ø aus ICON, GFS, IFS, MOSMIX)
+  const days = D.time.slice(0, 5).map((ds, i) => {
+    const m = mosDay(ds);
+    const precip = mean([...pick(D, 'precipitation_sum', i)]), pop = mean(pick(D, 'precipitation_probability_max', i));
+    return {
+      label: i === 0 ? 'Heute' : ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'][new Date(`${ds}T12:00:00Z`).getUTCDay()],
+      hi: i === 0 ? hi : mean([...pick(D, 'temperature_2m_max', i), m?.hi ?? null]),
+      lo: i === 0 ? lo : mean([...pick(D, 'temperature_2m_min', i), m?.lo ?? null]),
+      code: consensus(pick(D, 'weather_code', i), { precip, pop, daily: true }),
+    };
+  }).filter(x => x.hi != null && x.lo != null);
+
+  const res = {
+    temp, code, day, hi, lo, hours: hours.slice(0, 6), days, precipDay, popDay,
     dayCode: consensus(pick(D, 'weather_code', 0), { precip: precipDay, pop: popDay, daily: true }),
     alertColor, alertTitle, fromStation: sTemp != null,
   };
+  res.insight = insight(res, hours, alert);
+  return res;
+}
+
+// Ein Satz mit dem Wichtigsten – Priorität: Warnung > Niederschlag > Temperaturwechsel > Böen > Überblick
+function insight(d, hrs, alert) {
+  const hh = ts => `${parseInt(ts.slice(11, 13), 10)} Uhr`;
+  if (alert && d.alertTitle) {
+    let until = '';
+    if (alert.expires) {
+      const t = new Date(alert.expires);
+      until = ` bis ${t.getHours()} Uhr`;
+    }
+    return { symbol: 'exclamationmark.triangle.fill', color: d.alertColor, text: `${d.alertTitle}${until} – amtliche Warnung des DWD` };
+  }
+  const next = hrs.slice(0, 13);
+  const wet = h => isWet(h.code) && (h.pop ?? 60) >= 40 && (h.precip ?? 0) >= 0.1;
+  const noun = c => category(c) === 'snow' ? 'Schnee' : category(c) === 'thunder' ? 'Gewitter' : 'Regen';
+  if (isWet(d.code) || wet(next[0])) {
+    const end = next.findIndex((h, i) => i > 0 && !wet(h));
+    return { symbol: 'umbrella.fill', color: new Color('#5ac8fa'),
+      text: end > 0 ? `${noun(d.code)} hört gegen ${hh(next[end].ts)} auf` : `${noun(d.code)} hält in den nächsten Stunden an` };
+  }
+  const start = next.findIndex((h, i) => i > 0 && wet(h));
+  if (start > 0) return { symbol: 'umbrella.fill', color: new Color('#5ac8fa'), text: `${noun(next[start].code)} ab etwa ${hh(next[start].ts)}` };
+  const tomorrow = d.days[1];
+  if (tomorrow) {
+    const diff = Math.round(tomorrow.hi) - Math.round(d.hi);
+    if (Math.abs(diff) >= 3) return { symbol: 'thermometer.medium', color: null,
+      text: `Morgen ${diff > 0 ? 'wärmer' : 'kühler'}, die Höchsttemperatur liegt bei ${Math.round(tomorrow.hi)}°` };
+  }
+  const gust = Math.max(0, ...next.map(h => h.gust ?? 0));
+  if (gust >= 50) return { symbol: 'wind', color: null, text: `Böen bis ${Math.round(gust)} km/h erwartet` };
+  return { symbol: 'thermometer.medium', color: null,
+    text: tomorrow ? `Heute bis ${Math.round(d.hi)}°, morgen ${Math.round(tomorrow.hi)}°` : `Höchstwert heute ${Math.round(d.hi)}°` };
 }
 
 // ---------- Layout ----------
@@ -264,6 +312,76 @@ function small(w, d, name) {
   txt(w, d.alertTitle ? `⚠︎ ${d.alertTitle}` : describe(d.code, d.day), Font.semiboldSystemFont(13), 1, d.alertTitle ? d.alertColor : Color.white());
   txt(w, `H: ${deg(d.hi)} T: ${deg(d.lo)}`, Font.semiboldSystemFont(13));
 }
+
+// Temperatur → Farbe (wie die App)
+const TSTOPS = [[-15, [94, 92, 230]], [-5, [64, 156, 255]], [3, [90, 200, 250]], [10, [102, 212, 160]], [17, [255, 214, 10]], [24, [255, 159, 10]], [31, [255, 69, 58]], [38, [191, 90, 242]]];
+function tempColor(t) {
+  let i = TSTOPS.findIndex(s => s[0] > t);
+  if (i <= 0) return new Color(rgbHex(TSTOPS[i < 0 ? TSTOPS.length - 1 : 0][1]));
+  const [ta, ca] = TSTOPS[i - 1], [tb, cb] = TSTOPS[i], f = (t - ta) / (tb - ta);
+  return new Color(rgbHex(ca.map((c, k) => c + (cb[k] - c) * f)));
+}
+const rgbHex = a => '#' + a.map(v => Math.round(v).toString(16).padStart(2, '0')).join('');
+
+// Spannenbalken als Bild (DrawContext kennt keine Verläufe → schmale Streifen mit runden Enden)
+function rangeBar(lo, hi, min, max, cur) {
+  const W = 120, H = 10, r = H / 2;
+  const dc = new DrawContext();
+  dc.size = new Size(W, H); dc.opaque = false; dc.respectScreenScale = true;
+  const track = new Path(); track.addRoundedRect(new Rect(0, 0, W, H), r, r);
+  dc.addPath(track); dc.setFillColor(new Color('#000000', 0.22)); dc.fillPath();
+  const span = Math.max(1, max - min);
+  const x0 = ((lo - min) / span) * W, x1 = Math.max(x0 + H, ((hi - min) / span) * W);
+  for (let x = x0; x < x1; x += 1) {
+    const dist = Math.min(x - x0, x1 - x);
+    const dy = dist < r ? Math.sqrt(Math.max(0, r * r - (r - dist) ** 2)) : r;
+    dc.setFillColor(tempColor(lo + (hi - lo) * ((x - x0) / Math.max(1, x1 - x0))));
+    dc.fillRect(new Rect(x, r - dy, 1.25, dy * 2));
+  }
+  if (cur != null) {
+    const cx = clampN(((cur - min) / span) * W, r, W - r);
+    dc.setFillColor(new Color('#000000', 0.35)); dc.fillEllipse(new Rect(cx - r, 0, H, H));
+    dc.setFillColor(Color.white()); dc.fillEllipse(new Rect(cx - r + 2, 2, H - 4, H - 4));
+  }
+  return dc.getImage();
+}
+const clampN = (v, a, b) => Math.min(b, Math.max(a, v));
+
+function mediumDaily(w, d, name) {
+  w.setPadding(14, 16, 14, 14);
+  const row = w.addStack();
+  row.layoutHorizontally();
+
+  const left = row.addStack();
+  left.layoutVertically();
+  left.size = new Size(138, 0);
+  header(left, name, d.alertColor, 15);
+  txt(left, deg(d.temp), Font.lightSystemFont(46));
+  left.addSpacer();
+  sym(left, d.insight.symbol, 14, d.insight.color || Color.white());
+  left.addSpacer(3);
+  const t = txt(left, d.insight.text, Font.semiboldSystemFont(12.5));
+  t.lineLimit = 3; t.minimumScaleFactor = 0.8;
+
+  row.addSpacer();
+  const right = row.addStack();
+  right.layoutVertically();
+  const min = Math.min(...d.days.map(x => x.lo)), max = Math.max(...d.days.map(x => x.hi));
+  d.days.forEach((x, i) => {
+    const r = right.addStack();
+    r.centerAlignContent();
+    const a = r.addStack(); a.size = new Size(30, 0); txt(a, x.label === 'Heute' ? wdToday() : x.label, Font.semiboldSystemFont(14)); a.addSpacer();
+    const b = r.addStack(); b.size = new Size(24, 0); sym(b, symbolName(x.code, true), 12.5, symbolColor(x.code, true)); b.addSpacer();
+    const c = r.addStack(); c.size = new Size(22, 0); c.addSpacer(); txt(c, `${Math.round(x.lo)}`, Font.semiboldSystemFont(14), 0.6);
+    r.addSpacer(5);
+    const img = r.addImage(rangeBar(x.lo, x.hi, min, max, i === 0 ? d.temp : null));
+    img.imageSize = new Size(52, 4.5);
+    r.addSpacer(5);
+    const e = r.addStack(); e.size = new Size(22, 0); e.addSpacer(); txt(e, `${Math.round(x.hi)}`, Font.semiboldSystemFont(14));
+    if (i < d.days.length - 1) right.addSpacer();
+  });
+}
+const wdToday = () => ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'][new Date().getDay()];
 
 function medium(w, d, name) {
   w.setPadding(14, 16, 12, 16);
@@ -356,7 +474,8 @@ async function main() {
   } else {
     w.backgroundGradient = background(d.code, d.day);
     if (family === 'small') small(w, d, pos.name);
-    else medium(w, d, pos.name);
+    else if (/stunde/i.test(args.widgetParameter || '')) medium(w, d, pos.name);
+    else mediumDaily(w, d, pos.name);
   }
   return w;
 }
@@ -366,7 +485,6 @@ if (config.runsInWidget) {
   Script.setWidget(widget);
 } else {
   // Vorschau beim Start in der App
-  const choice = args.queryParameters?.size || 'medium';
-  if (choice === 'small') await widget.presentSmall(); else await widget.presentMedium();
+  await widget.presentMedium();
 }
 Script.complete();
