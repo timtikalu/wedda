@@ -2,7 +2,7 @@
 // These must be at the very top of the file. Do not edit.
 // icon-color: blue; icon-glyph: cloud-sun;
 
-// wedda – Wetter-Widget (v2.4) für Scriptable
+// wedda – Wetter-Widget (v2.4.1) für Scriptable
 // Aktueller Standort · Höchst-/Tiefstwerte = Mittelwert aus DWD ICON, NOAA GFS, ECMWF IFS (Open-Meteo) und DWD MOSMIX (Bright Sky)
 // Aktuelle Temperatur: DWD-Messstation (Bright Sky), wenn nah & höhengleich, sonst ICON · Warnungen: DWD
 // Größen: klein, mittel (5 Tage + Hinweis; Parameter „stunden“ → Stundenansicht), Sperrbildschirm (rechteckig, rund, Textzeile)
@@ -81,12 +81,13 @@ function symbolColor(c, day) {
   return Color.white();
 }
 
+// Eigene, kräftigere Verläufe fürs Widget: weiße Schrift überall ≥ 4,5:1 (WCAG AA), auch unten beim Hinweistext
 const PALETTES = {
-  clear: [['#2a6fdb', '#8cc8ff'], ['#050b1d', '#1f3463']], mostly: [['#3474d4', '#9cc6f2'], ['#0a1228', '#2b3d63']],
-  partly: [['#4a7cc0', '#a9c3e2'], ['#0e1528', '#313f5c']], overcast: [['#5b6b80', '#a4afbd'], ['#161b24', '#363e4c']],
-  fog: [['#7c8794', '#c3c9cf'], ['#1c2027', '#40464f']], drizzle: [['#4e5d70', '#8d99a8'], ['#121820', '#2e3644']],
-  rain: [['#3e4c5e', '#7b8797'], ['#0d1219', '#2a323e']], snow: [['#71839a', '#c8d2de'], ['#1a2130', '#46516a']],
-  thunder: [['#2e3542', '#646c7a'], ['#08090d', '#262a33']],
+  clear: [['#1b5bc4', '#2f74d6'], ['#071027', '#14244a']], mostly: [['#1f5cbc', '#3a75cc'], ['#0a1430', '#1b2c52']],
+  partly: [['#2c5a9e', '#44709f'], ['#0f1830', '#24324f']], overcast: [['#3f4c5d', '#566476'], ['#161b24', '#2c3340']],
+  fog: [['#4b5562', '#5d6773'], ['#1c2027', '#353b44']], drizzle: [['#36424f', '#4c5866'], ['#121820', '#29313d']],
+  rain: [['#2b3644', '#435060'], ['#0d1219', '#252d38']], snow: [['#435570', '#56688a'], ['#1a2130', '#38425a']],
+  thunder: [['#20252f', '#363c48'], ['#08090d', '#20242c']],
 };
 function background(c, day) {
   const p = (PALETTES[category(c)] || PALETTES.overcast)[day ? 0 : 1];
@@ -281,6 +282,7 @@ function insight(d, hrs, alert) {
 function txt(stack, s, font, opacity = 1, color = Color.white()) {
   const t = stack.addText(s);
   t.font = font; t.textColor = color; t.textOpacity = opacity;
+  t.shadowColor = new Color('#000000', 0.18); t.shadowRadius = 2; t.shadowOffset = new Point(0, 1);
   t.lineLimit = 1; t.minimumScaleFactor = 0.6;
   return t;
 }
@@ -329,7 +331,7 @@ function rangeBar(lo, hi, min, max, cur) {
   const dc = new DrawContext();
   dc.size = new Size(W, H); dc.opaque = false; dc.respectScreenScale = true;
   const track = new Path(); track.addRoundedRect(new Rect(0, 0, W, H), r, r);
-  dc.addPath(track); dc.setFillColor(new Color('#000000', 0.22)); dc.fillPath();
+  dc.addPath(track); dc.setFillColor(new Color('#000000', 0.28)); dc.fillPath();
   const span = Math.max(1, max - min);
   const x0 = ((lo - min) / span) * W, x1 = Math.max(x0 + H, ((hi - min) / span) * W);
   for (let x = x0; x < x1; x += 1) {
@@ -372,7 +374,7 @@ function mediumDaily(w, d, name) {
     r.centerAlignContent();
     const a = r.addStack(); a.size = new Size(30, 0); txt(a, x.label === 'Heute' ? wdToday() : x.label, Font.semiboldSystemFont(14)); a.addSpacer();
     const b = r.addStack(); b.size = new Size(24, 0); sym(b, symbolName(x.code, true), 12.5, symbolColor(x.code, true)); b.addSpacer();
-    const c = r.addStack(); c.size = new Size(22, 0); c.addSpacer(); txt(c, `${Math.round(x.lo)}`, Font.semiboldSystemFont(14), 0.6);
+    const c = r.addStack(); c.size = new Size(22, 0); c.addSpacer(); txt(c, `${Math.round(x.lo)}`, Font.semiboldSystemFont(14), 0.72);
     r.addSpacer(5);
     const img = r.addImage(rangeBar(x.lo, x.hi, min, max, i === 0 ? d.temp : null));
     img.imageSize = new Size(52, 4.5);
